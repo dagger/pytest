@@ -1,15 +1,18 @@
 {
   "name": "pytest",
-  "engineVersion": "v0.19.9",
+  "engineVersion": "v0.19.11",
   "sdk": {
-    "source": "github.com/vito/dang/dagger-sdk@266e75bc46ac1ad596517645f4b7e1355a69b731"
+    "source": "github.com/vito/dang/dagger-sdk@be6466632453a52120517e5551c266a239d3899b"
   },
-  "include": ["pytest_otel", "images"],
+  "include": [
+    "pytest_otel",
+    "images"
+  ],
   "dependencies": [
     {
       "name": "wolfi",
       "source": "github.com/dagger/dagger/modules/wolfi@main",
-      "pin": "fee59133838a6808f16538614fe62fe16126a461"
+      "pin": "42bb3b568c0a38671561a1f40e7a40cba49cde60"
     }
   ]
 }
