@@ -7,6 +7,11 @@ type Pytest {
   let uvBinary = currentModule().source().directory("images/uv").dockerBuild().rootfs()
 
   """
+  The alpine base image
+  """
+  let alpine = currentModule().source().directory("images/alpine").dockerBuild()
+
+  """
   The pytest_otel source directory bundled with this module
   """
   let pytestOtelSource = currentModule().source().directory("pytest_otel")
@@ -18,7 +23,7 @@ type Pytest {
 
   """
   Optional: A custom container with Python and uv installed.
-  If not provided, defaults to Wolfi Linux with uv.
+  If not provided, defaults to Alpine Linux with uv.
   """
   pub container: Container = null
 
@@ -26,8 +31,8 @@ type Pytest {
     if (container != null) {
       container
     } else {
-      wolfi().
-        container(packages: ["libgcc"]).
+      alpine.
+        withExec(["apk", "add", "libgcc"]).
         withEnvVariable("PYTHONUNBUFFERED", "1").
         withEnvVariable("PATH", "/root/.local/bin:/usr/local/bin:$PATH", expand: true).
         withEnvVariable("UV_LINK_MODE", "copy").
@@ -44,7 +49,7 @@ type Pytest {
   in Dagger TUI and Dagger Cloud. No configuration required.
 
   The function will:
-  - Use the provided container or default to Wolfi Linux with uv
+  - Use the provided container or default to Alpine Linux with uv
   - Install your project dependencies using uv sync
   - Inject pytest_otel for automatic test tracing
   - Run pytest with the specified Python version

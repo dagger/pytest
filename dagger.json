@@ -4,15 +4,5 @@
   "sdk": {
     "source": "github.com/vito/dang/dagger-sdk@da6ed3337a2a18b0c9a371813ef62b880e1c6f5d"
   },
-  "include": [
-    "pytest_otel",
-    "images"
-  ],
-  "dependencies": [
-    {
-      "name": "wolfi",
-      "source": "github.com/dagger/dagger/modules/wolfi@main",
-      "pin": "42bb3b568c0a38671561a1f40e7a40cba49cde60"
-    }
-  ]
+  "include": ["pytest_otel", "images"]
 }
