@@ -11,7 +11,7 @@ On a python project, using pytest as the test runner:
 - initialize a dagger module if not already done: `dagger init .`
 - install the `pytest` toolchain: `dagger toolchain install github.com/dagger/pytest`
 - run tests: `dagger check pytest:test`. It will:
-  - creates a Wolfi based container with `uv`
+  - creates an Alpine based container with `uv`
   - install your project dependencies using `uv sync` (a cache volume is set)
   - inject the `pytest_otel` dependency for automatic test tracing
   - run `pytest`
