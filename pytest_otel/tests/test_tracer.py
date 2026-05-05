@@ -1,7 +1,5 @@
 """Tests for the tracer module."""
 
-import pytest
-
 from pytest_otel.tracer import SpanContextManager
 
 
@@ -56,12 +54,53 @@ class TestParseNodeid:
         assert func == "TestInner::test_method"
 
 
+class TestSemconvMappings:
+    """Tests for OTel test semconv value mappings."""
+
+    def test_case_result_status_mapping(self):
+        """Verify pytest outcomes map to semconv test case result statuses."""
+        from opentelemetry.semconv._incubating.attributes.test_attributes import (
+            TestCaseResultStatusValues,
+        )
+
+        ctx = SpanContextManager()
+
+        assert ctx._case_result_status("passed") == TestCaseResultStatusValues.PASS.value
+        assert ctx._case_result_status("failed") == TestCaseResultStatusValues.FAIL.value
+        assert ctx._case_result_status("error") == TestCaseResultStatusValues.FAIL.value
+        assert ctx._case_result_status("skipped") == "skipped"
+
+    def test_suite_run_status_mapping(self):
+        """Verify pytest exit statuses map to semconv test suite run statuses."""
+        from opentelemetry.semconv._incubating.attributes.test_attributes import (
+            TestSuiteRunStatusValues,
+        )
+
+        ctx = SpanContextManager()
+
+        assert ctx._suite_run_status(0) == TestSuiteRunStatusValues.SUCCESS.value
+        assert ctx._suite_run_status(1) == TestSuiteRunStatusValues.FAILURE.value
+        assert ctx._suite_run_status(2) == TestSuiteRunStatusValues.ABORTED.value
+        assert ctx._suite_run_status(5) == TestSuiteRunStatusValues.SKIPPED.value
+
+
 class TestAttributeNames:
     """Tests for attribute name constants."""
 
-    def test_attribute_names_for_dagger_ui(self):
-        """Verify attribute names for Dagger UI integration."""
+    def test_attribute_names(self):
+        """Verify attribute names for Dagger UI and OTel test semconv integration."""
         from pytest_otel import tracer
 
+        from opentelemetry.semconv._incubating.attributes import test_attributes
+
         assert tracer.ATTR_UI_BOUNDARY == "dagger.io/ui.boundary"
-        assert tracer.ATTR_UI_REVEAL == "dagger.io/ui.reveal"
+        assert not hasattr(tracer, "ATTR_UI_REVEAL")
+        assert not hasattr(tracer, "ATTR_PYTEST_NODEID")
+        assert not hasattr(tracer, "ATTR_PYTEST_MODULE")
+        assert not hasattr(tracer, "ATTR_PYTEST_CLASS")
+        assert not hasattr(tracer, "ATTR_PYTEST_FUNCTION")
+        assert not hasattr(tracer, "ATTR_PYTEST_OUTCOME")
+        assert tracer.TEST_CASE_NAME == test_attributes.TEST_CASE_NAME
+        assert tracer.TEST_CASE_RESULT_STATUS == test_attributes.TEST_CASE_RESULT_STATUS
+        assert tracer.TEST_SUITE_NAME == test_attributes.TEST_SUITE_NAME
+        assert tracer.TEST_SUITE_RUN_STATUS == test_attributes.TEST_SUITE_RUN_STATUS
