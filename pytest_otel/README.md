@@ -68,12 +68,11 @@ Each test span includes the following attributes:
 | Attribute | Description |
 |-----------|-------------|
 | `dagger.io/ui.boundary` | Prevents log bubbling in Dagger TUI |
-| `dagger.io/ui.reveal` | Shows top-level tests in Dagger TUI |
-| `pytest.nodeid` | Full pytest node ID |
-| `pytest.module` | Test module path |
-| `pytest.class` | Test class name (if applicable) |
-| `pytest.function` | Test function name |
-| `pytest.outcome` | Test result (passed/failed/skipped) |
+| `test.case.name` | Fully qualified pytest test case name |
+| `test.case.result.status` | Test result (`pass`/`fail`/`skipped`) |
+| `test.suite.name` | Pytest suite containing the test case |
+
+Session spans also include `test.suite.run.status`.
 
 ## Development
 

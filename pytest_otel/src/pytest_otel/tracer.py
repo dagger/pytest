@@ -5,6 +5,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 from opentelemetry import context, trace
+from opentelemetry.semconv._incubating.attributes.test_attributes import (
+    TEST_CASE_NAME as TEST_CASE_NAME,
+    TEST_CASE_RESULT_STATUS as TEST_CASE_RESULT_STATUS,
+    TEST_SUITE_NAME as TEST_SUITE_NAME,
+    TEST_SUITE_RUN_STATUS as TEST_SUITE_RUN_STATUS,
+    TestCaseResultStatusValues,
+    TestSuiteRunStatusValues,
+)
 from opentelemetry.trace import Span, Status, StatusCode
 
 from pytest_otel.config import get_tracer
@@ -16,14 +24,6 @@ logger = logging.getLogger(__name__)
 
 # Attribute names for Dagger UI integration
 ATTR_UI_BOUNDARY = "dagger.io/ui.boundary"
-ATTR_UI_REVEAL = "dagger.io/ui.reveal"
-
-# Additional pytest-specific attributes
-ATTR_PYTEST_NODEID = "pytest.nodeid"
-ATTR_PYTEST_MODULE = "pytest.module"
-ATTR_PYTEST_CLASS = "pytest.class"
-ATTR_PYTEST_FUNCTION = "pytest.function"
-ATTR_PYTEST_OUTCOME = "pytest.outcome"
 
 
 @dataclass
@@ -69,7 +69,8 @@ class SpanContextManager:
             "pytest session",
             attributes={
                 ATTR_UI_BOUNDARY: True,
-                ATTR_UI_REVEAL: True,
+                TEST_SUITE_NAME: self._session_suite_name(session),
+                TEST_SUITE_RUN_STATUS: TestSuiteRunStatusValues.IN_PROGRESS.value,
             },
         )
 
@@ -101,6 +102,9 @@ class SpanContextManager:
 
         span = self._session_node.span
 
+        suite_status = self._suite_run_status(exitstatus)
+        span.set_attribute(TEST_SUITE_RUN_STATUS, suite_status)
+
         # Set status based on exit code
         if exitstatus == 0:
             span.set_status(Status(StatusCode.OK))
@@ -119,29 +123,15 @@ class SpanContextManager:
         """Start a span for a test item."""
         tracer = get_tracer()
 
-        # Parse the nodeid to extract components
-        module, cls, func = self._parse_nodeid(item.nodeid)
-
-        # Determine if this is a top-level test (no "/" in name after module)
-        # For pytest, top-level means directly under the module
-        is_top_level = cls is None
-
-        # Build attributes for Dagger UI and pytest metadata
+        # Build attributes for Dagger UI and OpenTelemetry test semantic conventions.
         attributes = {
             ATTR_UI_BOUNDARY: True,
-            ATTR_PYTEST_NODEID: item.nodeid,
+            TEST_CASE_NAME: item.nodeid,
         }
 
-        if module:
-            attributes[ATTR_PYTEST_MODULE] = module
-        if cls:
-            attributes[ATTR_PYTEST_CLASS] = cls
-        if func:
-            attributes[ATTR_PYTEST_FUNCTION] = func
-
-        # Only reveal top-level tests (not nested in classes)
-        if is_top_level:
-            attributes[ATTR_UI_REVEAL] = True
+        suite_name = self._test_suite_name(item.nodeid)
+        if suite_name:
+            attributes[TEST_SUITE_NAME] = suite_name
 
         span = tracer.start_span(item.name, attributes=attributes)
 
@@ -181,8 +171,8 @@ class SpanContextManager:
 
         span = node.span
 
-        # Record outcome as attribute
-        span.set_attribute(ATTR_PYTEST_OUTCOME, outcome)
+        # Record outcome using OpenTelemetry test semantic conventions.
+        span.set_attribute(TEST_CASE_RESULT_STATUS, self._case_result_status(outcome))
 
         # Set span status based on outcome
         if outcome == "passed":
@@ -211,6 +201,43 @@ class SpanContextManager:
         """
         node = self._tests.get(item.nodeid)
         return node.span if node else None
+
+    def _session_suite_name(self, session: "pytest.Session") -> str:
+        """Return a semantic-convention test suite name for the pytest session."""
+        rootpath = getattr(session.config, "rootpath", None)
+        if rootpath:
+            return str(rootpath)
+        return "pytest"
+
+    def _test_suite_name(self, nodeid: str) -> Optional[str]:
+        """Return a semantic-convention test suite name for a pytest nodeid."""
+        module, cls, _ = self._parse_nodeid(nodeid)
+        if not module:
+            return None
+        if cls:
+            return f"{module}::{cls}"
+        return module
+
+    def _case_result_status(self, outcome: str) -> str:
+        """Map pytest outcomes to OTel test.case.result.status values."""
+        if outcome == "passed":
+            return TestCaseResultStatusValues.PASS.value
+        if outcome in ("failed", "error"):
+            return TestCaseResultStatusValues.FAIL.value
+        if outcome == "skipped":
+            # The semconv package only defines pass/fail well-known values; custom values are allowed.
+            return "skipped"
+        return outcome
+
+    def _suite_run_status(self, exitstatus: int) -> str:
+        """Map pytest exit statuses to OTel test.suite.run.status values."""
+        if exitstatus == 0:
+            return TestSuiteRunStatusValues.SUCCESS.value
+        if exitstatus == 2:
+            return TestSuiteRunStatusValues.ABORTED.value
+        if exitstatus == 5:
+            return TestSuiteRunStatusValues.SKIPPED.value
+        return TestSuiteRunStatusValues.FAILURE.value
 
     def _parse_nodeid(self, nodeid: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """Parse pytest nodeid into (module, class, function).
