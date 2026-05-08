@@ -19,6 +19,25 @@ logger = logging.getLogger(__name__)
 FLUSH_TIMEOUT_MS = 30000
 
 
+def _set_env_if_unset(name: str, value: Optional[str]) -> None:
+    """Set an environment variable if unset and value is known."""
+    if name not in os.environ and value is not None:
+        os.environ[name] = value
+
+
+def _log_endpoint(endpoint: Optional[str]) -> Optional[str]:
+    """Derive the OTLP logs endpoint from a trace-specific endpoint."""
+    if not endpoint:
+        return None
+
+    normalized = endpoint.rstrip("/")
+    suffix = "/v1/traces"
+    if not normalized.endswith(suffix):
+        return None
+
+    return f"{normalized[: -len(suffix)]}/v1/logs"
+
+
 def _get_otlp_exporter() -> Optional[SpanExporter]:
     """Get OTLP span exporter if configured."""
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or os.environ.get(
@@ -119,6 +138,18 @@ class TelemetryConfig:
 
     def _prepare_env(self) -> None:
         """Prepare environment for OTLP configuration."""
+        if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+            _set_env_if_unset(
+                "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+                _log_endpoint(os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")),
+            )
+
+        _set_env_if_unset(
+            "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+            os.environ.get("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+            or os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL"),
+        )
+
         # Auto-configure insecure flag for http:// endpoints
         endpoint_vars = [
             ("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_INSECURE"),

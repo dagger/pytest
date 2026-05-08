@@ -14,6 +14,7 @@ On a python project, using pytest as the test runner:
   - creates an Alpine based container with `uv`
   - install your project dependencies using `uv sync` (a cache volume is set)
   - inject the `pytest_otel` dependency for automatic test tracing
+  - export captured stdout, stderr, and Python logging records as OTel logs
   - run `pytest`
 
 Example, using `fastly/fastly-cli`:

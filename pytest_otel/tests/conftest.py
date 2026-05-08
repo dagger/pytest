@@ -1,6 +1,5 @@
 """Test configuration for pytest-otel tests."""
 
-import atexit
 import os
 from typing import Generator
 

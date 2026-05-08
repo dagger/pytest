@@ -2,8 +2,6 @@
 
 import os
 
-import pytest
-
 
 class TestTelemetryConfig:
     """Tests for TelemetryConfig."""
@@ -21,8 +19,6 @@ class TestTelemetryConfig:
         self, monkeypatch, reset_telemetry, mock_otlp_exporters, with_traceparent
     ):
         """Test that configure extracts TRACEPARENT from environment."""
-        from opentelemetry import context
-
         from pytest_otel.config import TelemetryConfig
 
         config = TelemetryConfig()
@@ -77,3 +73,39 @@ class TestTelemetryConfig:
 
         assert config._is_configured
         assert tracer is not None
+
+    def test_prepare_env_derives_logs_endpoint(self, monkeypatch, reset_telemetry):
+        """Test logs endpoint is derived from a trace-specific endpoint."""
+        from pytest_otel.config import TelemetryConfig
+
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", raising=False)
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            "http://127.0.0.1:4318/v1/traces",
+        )
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf")
+
+        TelemetryConfig()._prepare_env()
+
+        assert (
+            os.environ["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"]
+            == "http://127.0.0.1:4318/v1/logs"
+        )
+        assert os.environ["OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"] == "http/protobuf"
+
+    def test_prepare_env_preserves_generic_endpoint(self, monkeypatch, reset_telemetry):
+        """Test generic OTLP endpoint handling is left to exporters."""
+        from pytest_otel.config import TelemetryConfig
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            "http://127.0.0.1:4318/v1/traces",
+        )
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", raising=False)
+
+        TelemetryConfig()._prepare_env()
+
+        assert "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT" not in os.environ

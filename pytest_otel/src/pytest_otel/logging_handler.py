@@ -31,15 +31,6 @@ STDIO_STREAM_STDERR = 2
 STDIO_STREAM_ATTR = "stdio.stream"
 STDIO_EOF_ATTR = "stdio.eof"
 
-# Mapping from Python logging levels to OpenTelemetry severity
-_SEVERITY_MAP = {
-    logging.DEBUG: SeverityNumber.DEBUG,
-    logging.INFO: SeverityNumber.INFO,
-    logging.WARNING: SeverityNumber.WARN,
-    logging.ERROR: SeverityNumber.ERROR,
-    logging.CRITICAL: SeverityNumber.FATAL,
-}
-
 
 def _get_severity(level: int) -> SeverityNumber:
     """Map Python log level to OpenTelemetry severity."""
@@ -52,6 +43,13 @@ def _get_severity(level: int) -> SeverityNumber:
     if level >= logging.INFO:
         return SeverityNumber.INFO
     return SeverityNumber.DEBUG
+
+
+def _get_stdio_stream(level: int) -> int:
+    """Map Python log level to a Dagger stdio stream."""
+    if level >= logging.WARNING:
+        return STDIO_STREAM_STDERR
+    return STDIO_STREAM_STDOUT
 
 
 class OtelLogHandler(logging.Handler):
@@ -77,6 +75,7 @@ class OtelLogHandler(logging.Handler):
 
             # Build attributes from log record
             attributes: dict = {
+                STDIO_STREAM_ATTR: _get_stdio_stream(record.levelno),
                 "log.logger": record.name,
                 "log.level": record.levelname,
                 "log.message": msg,
@@ -112,8 +111,7 @@ class OtelLogHandler(logging.Handler):
                         observed_timestamp=int(record.created * 1e9),
                         severity_text=record.levelname,
                         severity_number=_get_severity(record.levelno),
-                        body=msg,
-                        resource=getattr(self._otel_logger, "resource", None),
+                        body=msg if msg.endswith("\n") else f"{msg}\n",
                         attributes=attributes,
                         context=context.get_current(),
                     )
@@ -127,9 +125,7 @@ class OtelLogHandler(logging.Handler):
             self.handleError(record)
 
 
-def emit_stdio_log(
-    body: str, stream: int, span: Optional[Span] = None, eof: bool = False
-) -> None:
+def emit_stdio_log(body: str, stream: int, span: Optional[Span] = None, eof: bool = False) -> None:
     """Emit a log record with stdio.stream attribute for Dagger UI.
 
     This emits OpenTelemetry log records that Dagger UI can render as
@@ -145,8 +141,6 @@ def emit_stdio_log(
               during pytest hook execution.
         eof: If True, marks the end of the stream
     """
-    from pytest_otel.config import get_logger
-
     otel_logger = get_logger()
 
     attributes: dict = {STDIO_STREAM_ATTR: stream}

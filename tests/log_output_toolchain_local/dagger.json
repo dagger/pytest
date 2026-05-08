@@ -1,0 +1,16 @@
+{
+  "name": "pytest-log-output",
+  "engineVersion": "v0.20.6",
+  "toolchains": [
+    {
+      "name": "pytest",
+      "source": "../../",
+      "customizations": [
+        {
+          "argument": "source",
+          "defaultPath": "/tests/log_output_toolchain_local"
+        }
+      ]
+    }
+  ]
+}
