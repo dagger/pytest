@@ -82,6 +82,7 @@ type Pytest {
       withDirectory("/opt/pytest_otel", pytestOtelSource).
       withExec(["uv", "pip", "install", "--python", "/opt/venv/bin/python", "/opt/pytest_otel"]).
 
+      withEnvVariable("DAGGER_PYTEST_CACHE_BUSTER", UUID.v7).
       withExec(["uv", "run", "-p", version, "pytest"] + args).
 
       sync

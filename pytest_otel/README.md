@@ -74,6 +74,12 @@ Each test span includes the following attributes:
 
 Session spans also include `test.suite.run.status`.
 
+## Test output
+
+Captured stdout and stderr output is exported as OpenTelemetry logs on the active
+test span using Dagger's `stdio.stream` attribute. Python logging records are
+also forwarded as OpenTelemetry logs and mapped to stdout or stderr by severity.
+
 ## Development
 
 ```bash

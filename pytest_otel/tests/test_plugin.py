@@ -1,7 +1,6 @@
 """Tests for the pytest plugin hooks."""
 
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 
 class TestPytestConfigure:
@@ -63,12 +62,21 @@ class TestPytestUnconfigure:
 class TestCaptureTestOutput:
     """Tests for _capture_test_output function."""
 
-    def test_capture_stdout(self, reset_telemetry, mock_otlp_exporters):
+    def test_capture_stdout(self, monkeypatch):
         """Test that stdout is captured."""
         from pytest_otel import plugin
+        from pytest_otel.logging_handler import STDIO_STREAM_STDOUT
 
         mock_item = Mock()
         mock_item.nodeid = "tests/test_example.py::test_function"
+        mock_span = Mock()
+        emitted = []
+
+        monkeypatch.setattr(plugin.tracer, "get_test_span", lambda item: mock_span)
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.emit_stdio_log",
+            lambda body, stream, span=None: emitted.append((body, stream, span)),
+        )
 
         report = Mock()
         report.when = "call"
@@ -77,19 +85,25 @@ class TestCaptureTestOutput:
         report.capstderr = None
         report.longrepr = None
 
-        # Just test that the function doesn't raise an exception
-        try:
-            plugin._capture_test_output(mock_item, report)
-            assert True
-        except Exception as e:
-            pytest.fail(f"_capture_test_output raised unexpected exception: {e}")
+        plugin._capture_test_output(mock_item, report)
 
-    def test_capture_stderr(self, reset_telemetry, mock_otlp_exporters):
+        assert emitted == [("test stdout", STDIO_STREAM_STDOUT, mock_span)]
+
+    def test_capture_stderr(self, monkeypatch):
         """Test that stderr is captured."""
         from pytest_otel import plugin
+        from pytest_otel.logging_handler import STDIO_STREAM_STDERR
 
         mock_item = Mock()
         mock_item.nodeid = "tests/test_example.py::test_function"
+        mock_span = Mock()
+        emitted = []
+
+        monkeypatch.setattr(plugin.tracer, "get_test_span", lambda item: mock_span)
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.emit_stdio_log",
+            lambda body, stream, span=None: emitted.append((body, stream, span)),
+        )
 
         report = Mock()
         report.when = "call"
@@ -98,9 +112,6 @@ class TestCaptureTestOutput:
         report.capstderr = "test stderr"
         report.longrepr = None
 
-        # Just test that the function doesn't raise an exception
-        try:
-            plugin._capture_test_output(mock_item, report)
-            assert True
-        except Exception as e:
-            pytest.fail(f"_capture_test_output raised unexpected exception: {e}")
+        plugin._capture_test_output(mock_item, report)
+
+        assert emitted == [("test stderr", STDIO_STREAM_STDERR, mock_span)]

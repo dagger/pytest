@@ -3,17 +3,17 @@
 import logging
 from unittest.mock import Mock, MagicMock
 
-import pytest
-
 from pytest_otel.logging_handler import (
     OtelLogHandler,
     emit_stdio_log,
     _get_severity,
+    _get_stdio_stream,
     STDIO_STREAM_STDOUT,
     STDIO_STREAM_STDERR,
     STDIO_STREAM_ATTR,
 )
 from opentelemetry._logs import SeverityNumber
+from opentelemetry.sdk.trace import TracerProvider
 
 
 class TestGetSeverity:
@@ -43,6 +43,21 @@ class TestGetSeverity:
         """Test CRITICAL/FATAL severity mapping."""
         severity = _get_severity(logging.CRITICAL)
         assert severity == SeverityNumber.FATAL
+
+
+class TestGetStdioStream:
+    """Tests for _get_stdio_stream function."""
+
+    def test_debug_and_info_use_stdout(self):
+        """Test lower-severity logs map to stdout."""
+        assert _get_stdio_stream(logging.DEBUG) == STDIO_STREAM_STDOUT
+        assert _get_stdio_stream(logging.INFO) == STDIO_STREAM_STDOUT
+
+    def test_warning_and_above_use_stderr(self):
+        """Test warnings and errors map to stderr."""
+        assert _get_stdio_stream(logging.WARNING) == STDIO_STREAM_STDERR
+        assert _get_stdio_stream(logging.ERROR) == STDIO_STREAM_STDERR
+        assert _get_stdio_stream(logging.CRITICAL) == STDIO_STREAM_STDERR
 
 
 class TestOtelLogHandler:
@@ -84,8 +99,9 @@ class TestOtelLogHandler:
         )
 
         # Mock the otel logger
+        mock_logger = MagicMock()
         monkeypatch.setattr(
-            "pytest_otel.logging_handler.get_logger", lambda: MagicMock()
+            "pytest_otel.logging_handler.get_logger", lambda: mock_logger
         )
 
         handler.emit(record)
@@ -95,38 +111,74 @@ class TestOtelLogHandler:
         call_args = mock_span.add_event.call_args
         assert "log.info" in call_args[0]
         assert call_args[1]["attributes"]["log.logger"] == "test.logger"
+        assert call_args[1]["attributes"][STDIO_STREAM_ATTR] == STDIO_STREAM_STDOUT
+
+        # Verify an OpenTelemetry log record was emitted with stdio attributes
+        mock_logger.emit.assert_called_once()
+        emitted = mock_logger.emit.call_args.args[0]
+        assert emitted.body == "Test message\n"
+        assert emitted.attributes["log.message"] == "Test message"
+        assert emitted.attributes[STDIO_STREAM_ATTR] == STDIO_STREAM_STDOUT
 
 
 class TestEmitStdioLog:
     """Tests for emit_stdio_log function."""
 
-    def test_emit_stdout(self, reset_telemetry, mock_otlp_exporters):
+    def test_emit_stdout(self, monkeypatch):
         """Test emitting a stdout log."""
-        # Just test that the function doesn't raise an exception
-        # The actual logger emission is tested in OtelLogHandler tests
-        try:
-            emit_stdio_log("test output", STDIO_STREAM_STDOUT)
-            # If we got here without exception, the test passes
-            assert True
-        except Exception as e:
-            pytest.fail(f"emit_stdio_log raised unexpected exception: {e}")
+        mock_logger = Mock()
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.get_logger", lambda: mock_logger
+        )
 
-    def test_emit_stderr(self, reset_telemetry, mock_otlp_exporters):
+        emit_stdio_log("test output", STDIO_STREAM_STDOUT)
+
+        mock_logger.emit.assert_called_once()
+        emitted = mock_logger.emit.call_args.args[0]
+        assert emitted.body == "test output"
+        assert emitted.attributes[STDIO_STREAM_ATTR] == STDIO_STREAM_STDOUT
+
+    def test_emit_stderr(self, monkeypatch):
         """Test emitting a stderr log."""
-        # Just test that the function doesn't raise an exception
-        try:
-            emit_stdio_log("test error", STDIO_STREAM_STDERR)
-            # If we got here without exception, the test passes
-            assert True
-        except Exception as e:
-            pytest.fail(f"emit_stdio_log raised unexpected exception: {e}")
+        mock_logger = Mock()
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.get_logger", lambda: mock_logger
+        )
 
-    def test_emit_with_eof(self, reset_telemetry, mock_otlp_exporters):
+        emit_stdio_log("test error", STDIO_STREAM_STDERR)
+
+        mock_logger.emit.assert_called_once()
+        emitted = mock_logger.emit.call_args.args[0]
+        assert emitted.body == "test error"
+        assert emitted.attributes[STDIO_STREAM_ATTR] == STDIO_STREAM_STDERR
+
+    def test_emit_with_eof(self, monkeypatch):
         """Test emitting with EOF marker."""
-        # Just test that the function doesn't raise an exception
+        mock_logger = Mock()
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.get_logger", lambda: mock_logger
+        )
+
+        emit_stdio_log("final output", STDIO_STREAM_STDOUT, eof=True)
+
+        emitted = mock_logger.emit.call_args.args[0]
+        assert emitted.attributes[STDIO_STREAM_ATTR] == STDIO_STREAM_STDOUT
+        assert emitted.attributes["stdio.eof"] is True
+
+    def test_emit_with_explicit_span(self, monkeypatch):
+        """Test emitting with an explicit span context."""
+        span = TracerProvider().get_tracer("test").start_span("test")
+        span_context = span.get_span_context()
+        mock_logger = Mock()
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.get_logger", lambda: mock_logger
+        )
+
         try:
-            emit_stdio_log("final output", STDIO_STREAM_STDOUT, eof=True)
-            # If we got here without exception, the test passes
-            assert True
-        except Exception as e:
-            pytest.fail(f"emit_stdio_log raised unexpected exception: {e}")
+            emit_stdio_log("test output", STDIO_STREAM_STDOUT, span=span)
+        finally:
+            span.end()
+
+        emitted = mock_logger.emit.call_args.args[0]
+        assert emitted.trace_id == span_context.trace_id
+        assert emitted.span_id == span_context.span_id
