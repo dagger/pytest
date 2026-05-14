@@ -109,7 +109,7 @@ class SpanContextManager:
         if exitstatus == 0:
             span.set_status(Status(StatusCode.OK))
         else:
-            span.set_status(Status(StatusCode.ERROR, f"Exit status: {exitstatus}"))
+            span.set_status(Status(StatusCode.ERROR, "test session failed"))
 
         span.end()
 
@@ -178,7 +178,7 @@ class SpanContextManager:
         if outcome == "passed":
             span.set_status(Status(StatusCode.OK))
         elif outcome in ("failed", "error"):
-            span.set_status(Status(StatusCode.ERROR, f"Test {outcome}"))
+            span.set_status(Status(StatusCode.ERROR, "test failed"))
         # "skipped" keeps UNSET status (neither OK nor ERROR)
 
         span.end()

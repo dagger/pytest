@@ -1,6 +1,10 @@
 """Tests for the tracer module."""
 
-from pytest_otel.tracer import SpanContextManager
+from unittest.mock import Mock
+
+from opentelemetry.trace import StatusCode
+
+from pytest_otel.tracer import SpanContextManager, TestNode as OtelTestNode
 
 
 class TestParseNodeid:
@@ -82,6 +86,46 @@ class TestSemconvMappings:
         assert ctx._suite_run_status(1) == TestSuiteRunStatusValues.FAILURE.value
         assert ctx._suite_run_status(2) == TestSuiteRunStatusValues.ABORTED.value
         assert ctx._suite_run_status(5) == TestSuiteRunStatusValues.SKIPPED.value
+
+
+class TestStatusDescriptions:
+    """Tests for low-cardinality span status descriptions."""
+
+    def test_session_failure_status_is_static(self):
+        """Verify session failures do not include dynamic exit status text."""
+        ctx = SpanContextManager()
+        span = Mock()
+        ctx._session_node = OtelTestNode(
+            nodeid="session",
+            name="pytest session",
+            kind="session",
+            span=span,
+        )
+
+        ctx.end_session(1)
+
+        status = span.set_status.call_args.args[0]
+        assert status.status_code == StatusCode.ERROR
+        assert status.description == "test session failed"
+
+    def test_test_failure_status_is_static(self):
+        """Verify test failures do not include dynamic assertion text."""
+        ctx = SpanContextManager()
+        span = Mock()
+        item = Mock()
+        item.nodeid = "tests/test_foo.py::test_bar"
+        ctx._tests[item.nodeid] = OtelTestNode(
+            nodeid=item.nodeid,
+            name="test_bar",
+            kind="function",
+            span=span,
+        )
+
+        ctx.end_test(item, "failed")
+
+        status = span.set_status.call_args.args[0]
+        assert status.status_code == StatusCode.ERROR
+        assert status.description == "test failed"
 
 
 class TestAttributeNames:

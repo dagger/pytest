@@ -115,3 +115,30 @@ class TestCaptureTestOutput:
         plugin._capture_test_output(mock_item, report)
 
         assert emitted == [("test stderr", STDIO_STREAM_STDERR, mock_span)]
+
+    def test_capture_failure_details(self, monkeypatch):
+        """Test that assertion details are captured as stderr logs."""
+        from pytest_otel import plugin
+        from pytest_otel.logging_handler import STDIO_STREAM_STDERR
+
+        mock_item = Mock()
+        mock_item.nodeid = "tests/test_example.py::test_function"
+        mock_span = Mock()
+        emitted = []
+
+        monkeypatch.setattr(plugin.tracer, "get_test_span", lambda item: mock_span)
+        monkeypatch.setattr(
+            "pytest_otel.logging_handler.emit_stdio_log",
+            lambda body, stream, span=None: emitted.append((body, stream, span)),
+        )
+
+        report = Mock()
+        report.when = "call"
+        report.failed = True
+        report.capstdout = None
+        report.capstderr = None
+        report.longrepr = "assert 1 == 2"
+
+        plugin._capture_test_output(mock_item, report)
+
+        assert emitted == [("assert 1 == 2", STDIO_STREAM_STDERR, mock_span)]
