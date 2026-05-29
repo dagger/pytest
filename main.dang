@@ -29,7 +29,9 @@ type Pytest {
 
   let base: Container! {
     if (container != null) {
-      container
+      container.
+        withEnvVariable("VIRTUAL_ENV", "/opt/venv").
+        withEnvVariable("UV_PROJECT_ENVIRONMENT", "/opt/venv")
     } else {
       alpine.
         withExec(["apk", "add", "libgcc"]).
@@ -37,6 +39,7 @@ type Pytest {
         withEnvVariable("PATH", "/root/.local/bin:/usr/local/bin:$PATH", expand: true).
         withEnvVariable("UV_LINK_MODE", "copy").
         withEnvVariable("UV_PROJECT_ENVIRONMENT", "/opt/venv").
+        withEnvVariable("VIRTUAL_ENV", "/opt/venv").
         withMountedCache("/root/.cache/uv", cacheVolume("pytest-toolchain-uv")).
         withDirectory("/usr/local/bin", uvBinary, include: ["uv*"])
     }
@@ -49,9 +52,10 @@ type Pytest {
   in Dagger TUI and Dagger Cloud. No configuration required.
 
   The function will:
-  - Use the provided container or default to Alpine Linux with uv
-  - Install your project dependencies using uv sync
+  - Reuse the provided container's Python environment, or default to Alpine
+    Linux with uv and provision Python for the requested version
   - Inject pytest_otel for automatic test tracing
+  - Install your project dependencies (via `uv run` for pyproject, or requirements.txt)
   - Run pytest with the specified Python version
   """
   pub test(
@@ -61,28 +65,35 @@ type Pytest {
     args: [String!]! = ["-v"],
 
     """
-    Python version to use (e.g., "3.12", "3.11", "3.10")
+    Python version to use (e.g., "3.14", "3.13", "3.12")
     """
-    version: String! = "3.13",
+    version: String! = "3.14",
   ): Void @check {
-    base.
+    # A user-supplied container already ships a ready Python environment that we
+    # reuse as-is. Only the default base needs Python provisioned into /opt/venv;
+    # that step also fails fast if the requested version can't be resolved.
+    let prepared = if (container != null) {
+      base
+    } else {
+      base.withExec(["uv", "venv", "/opt/venv", "-p", version])
+    }
+
+    prepared.
+      # Inject pytest_otel before the source is added so this layer stays cached
+      # across source changes. uv targets /opt/venv via VIRTUAL_ENV (no --python needed).
+      withDirectory("/opt/pytest_otel", pytestOtelSource).
+      withExec(["uv", "pip", "install", "/opt/pytest_otel"]).
+
       withDirectory("/app", source).
       withWorkdir("/app").
 
-      # Install user dependencies using uv with specified Python version
-      # This ensures Python is installed in the virtual environment
+      # requirements.txt projects need their deps installed explicitly;
+      # pyproject.toml projects are synced automatically by `uv run`.
       withExec([
         "sh", "-c",
-        "if [ -f pyproject.toml ]; then uv sync -p " + version + "; elif [ -f requirements.txt ]; then uv venv -p " + version + " && uv pip install -r requirements.txt; fi"
+        "if [ -f requirements.txt ] && [ ! -f pyproject.toml ]; then uv pip install -r requirements.txt; fi"
       ]).
 
-      # Bundle and install pytest_otel into the project's virtual environment
-      # Using "uv pip install" with explicit python path (after uv sync creates the venv)
-      # This avoids modifying pyproject.toml which could cause resolution conflicts
-      withDirectory("/opt/pytest_otel", pytestOtelSource).
-      withExec(["uv", "pip", "install", "--python", "/opt/venv/bin/python", "/opt/pytest_otel"]).
-
-      withEnvVariable("DAGGER_PYTEST_CACHE_BUSTER", UUID.v7).
       withExec(["uv", "run", "-p", version, "pytest"] + args).
 
       sync
