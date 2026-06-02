@@ -18,7 +18,34 @@ On a python project, using pytest as the test runner:
   - export captured stdout, stderr, and Python logging records as OTel logs
   - run `pytest`
 
-By default the toolchain builds an Alpine + `uv` container. You can instead provide your own container (with Python and `uv` installed); the toolchain reuses its existing virtual environment at `/opt/venv` rather than recreating it.
+`pytest:test` runs against a self-contained Alpine + `uv` base, so it needs no setup. To trace pytest inside your own container instead (your Python, your dependencies, your environment), pass that container to the toolchain or use the lower-level functions directly.
+
+## Usage modes
+
+The toolchain serves three levels of control:
+
+1. **Plain toolchain** - install it and run `dagger check`. Your project is taken
+   from the workspace automatically; `pythonVersion` (and `sourcePath`, to target a
+   subdirectory of the workspace) are the only knobs commonly set. Everything else
+   just works against the bundled Alpine + `uv` base.
+2. **Custom image (drop-in)** - set `container` to your own image (your Python, your
+   tooling, `uv` or not). It replaces the default base; the module still installs
+   `pytest_otel` and runs pytest. If your image is not `uv`-based, set `runner` to
+   `PIP` or leave `AUTO` to auto-detect.
+3. **Embedded / custom** - call the building blocks directly:
+   - `test` - full pipeline (base -> source -> deps -> otel -> pytest), with
+     `installDeps: false` to skip dependency installation when your image already
+     has them.
+   - `testUv` / `testPip` - run-only: given a container that already has source +
+     dependencies, install `pytest_otel` and run pytest. Use these to skip
+     detection entirely.
+   - `installPytestOtel(ctr, runner)` - install only `pytest_otel` into your
+     container (`AUTO` detects the tool; `UV`/`PIP` force one), then run pytest
+     yourself.
+   - `pytestOtel` - get the bundled `pytest_otel` library as a `Directory` for
+     fully-manual integration (it is not yet published to PyPI).
+
+`runner` is `AUTO` | `UV` | `PIP` (default `AUTO`: prefer `uv`, else `pip`).
 
 Example, using `fastly/fastly-cli`:
 

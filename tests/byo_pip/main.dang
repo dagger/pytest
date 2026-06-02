@@ -1,0 +1,45 @@
+type ByoPip {
+  """
+  A minimal pip-based project container (no uv): python:3.12-slim with a
+  requirements.txt and a trivial passing test.
+  """
+  let project: Container! {
+    container
+      .from("python:3.12-slim")
+      .withNewFile("/app/requirements.txt", "pytest>=7.0.0\n")
+      .withNewFile("/app/test_ok.py", "def test_ok():\n    assert True\n")
+      .withWorkdir("/app")
+  }
+
+  """
+  testPip on a ready pip container: deps installed here, then the primitive
+  installs pytest_otel (forced pip) and runs `python -m pytest`.
+  """
+  pub byoPip(): Void @check {
+    let ready = project.withExec(["pip", "install", "-r", "requirements.txt"])
+    pytest.testPip(ready).sync
+    null
+  }
+
+  """
+  installPytestOtel with PIP forces pip even on a plain python image.
+  """
+  pub otelPip(): Void @check {
+    pytest
+      .installPytestOtel(project, runner: PytestRunner.PIP)
+      .withExec(["python", "-c", "import pytest_otel"])
+      .sync
+    null
+  }
+
+  """
+  installPytestOtel with AUTO detects pip on a plain python image.
+  """
+  pub otelAuto(): Void @check {
+    pytest
+      .installPytestOtel(project)
+      .withExec(["python", "-c", "import pytest_otel"])
+      .sync
+    null
+  }
+}

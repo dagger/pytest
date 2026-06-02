@@ -7,8 +7,8 @@
       "source": "../../",
       "customizations": [
         {
-          "argument": "source",
-          "defaultPath": "/tests/log_output_toolchain_local"
+          "argument": "sourcePath",
+          "default": "/tests/log_output_toolchain_local"
         }
       ]
     }

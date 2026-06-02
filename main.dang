@@ -1,112 +1,243 @@
 pub description = "A toolchain for testing Python applications with automatic OpenTelemetry tracing"
 
+enum Runner {
+  AUTO
+  UV
+  PIP
+}
+
 type Pytest {
   """
   The uv binary extracted from the bundled Docker image
   """
-  let uvBinary = currentModule().source().directory("images/uv").dockerBuild().rootfs()
+  let uvBinary: Directory! {
+    currentModule.source.directory("images/uv").dockerBuild.rootfs
+  }
 
   """
   The alpine base image
   """
-  let alpine = currentModule().source().directory("images/alpine").dockerBuild()
+  let alpine: Container! {
+    currentModule.source.directory("images/alpine").dockerBuild
+  }
 
   """
   The pytest_otel source directory bundled with this module
   """
-  let pytestOtelSource = currentModule().source().directory("pytest_otel")
+  let pytestOtelSource = currentModule.source.directory("pytest_otel")
 
   """
-  Optional: The source directory containing your Python project
+  The source directory containing your Python project, taken from the
+  workspace at `sourcePath` in the constructor.
   """
   pub source: Directory!
 
   """
-  Optional: A custom container with Python and uv installed.
-  If not provided, defaults to Alpine Linux with uv.
+  Additional arguments to pass to pytest (e.g., ["-x", "--tb=short"])
+  """
+  pub args: [String!]! = ["-v"]
+
+  """
+  Optional: Python version to use (e.g., "3.14", "3.13", "3.12")
+
+  Only relevant when using the default base.
+  """
+  pub pythonVersion: String! = "3.14"
+
+  """
+  Optional: a custom image that replaces the default Alpine+uv base.
+  When set, Python provisioning (`uv venv`) is skipped.
   """
   pub container: Container = null
 
+  """
+  Which Python tool to use. AUTO probes the container (prefers uv, else pip).
+  """
+  pub runner: Runner = Runner.AUTO
+
+  """
+  Whether `test` installs project dependencies before running. Set false when
+  the container already has them baked in.
+  """
+  pub installDeps: Boolean! = true
+
+  """
+  Construct the toolchain from a workspace.
+
+  `source` is taken from the workspace at `sourcePath`; every other field is
+  exposed here so consumers and `customizations` can configure the full
+  pipeline (pytest args, Python version, custom container, runner, dependency
+  installation).
+  """
   new(
     ws: Workspace!,
+    sourcePath: String! = "/",
+    args: [String!]! = ["-v"],
+    pythonVersion: String! = "3.14",
     container: Container = null,
+    runner: Runner = Runner.AUTO,
+    installDeps: Boolean! = true,
   ) {
-    self.source = ws.directory("/")
+    self.source = ws.directory(sourcePath)
+    self.args = args
+    self.pythonVersion = pythonVersion
     self.container = container
+    self.runner = runner
+    self.installDeps = installDeps
     self
   }
 
+  """
+  The default Alpine + uv base: Python tooling only.
+  """
+  let defaultBase: Container! {
+    alpine
+      .withExec(["apk", "add", "libgcc"])
+      .withEnvVariable("PYTHONUNBUFFERED", "1")
+      .withEnvVariable("PATH", "/root/.local/bin:/usr/local/bin:$PATH", expand: true)
+      .withEnvVariable("UV_LINK_MODE", "copy")
+      .withEnvVariable("UV_PROJECT_ENVIRONMENT", "/opt/venv")
+      .withEnvVariable("VIRTUAL_ENV", "/opt/venv")
+      .withMountedCache("/root/.cache/uv", cacheVolume("pytest-toolchain-uv"))
+      .withDirectory("/usr/local/bin", uvBinary, include: ["uv*"])
+      .withExec(["uv", "venv", "/opt/venv", "-p", pythonVersion])
+  }
+
+  """
+  The base used by `test`: the custom container if provided, else the default.
+  """
   let base: Container! {
     if (container != null) {
-      container.
-        withEnvVariable("VIRTUAL_ENV", "/opt/venv").
-        withEnvVariable("UV_PROJECT_ENVIRONMENT", "/opt/venv")
+      container
     } else {
-      alpine.
-        withExec(["apk", "add", "libgcc"]).
-        withEnvVariable("PYTHONUNBUFFERED", "1").
-        withEnvVariable("PATH", "/root/.local/bin:/usr/local/bin:$PATH", expand: true).
-        withEnvVariable("UV_LINK_MODE", "copy").
-        withEnvVariable("UV_PROJECT_ENVIRONMENT", "/opt/venv").
-        withEnvVariable("VIRTUAL_ENV", "/opt/venv").
-        withMountedCache("/root/.cache/uv", cacheVolume("pytest-toolchain-uv")).
-        withDirectory("/usr/local/bin", uvBinary, include: ["uv*"])
+      defaultBase
     }
   }
 
   """
   Test a Python project with pytest and OpenTelemetry tracing.
 
-  This function automatically injects pytest_otel for test tracing visibility
-  in Dagger TUI and Dagger Cloud. No configuration required.
-
-  The function will:
-  - Reuse the provided container's Python environment, or default to Alpine
-    Linux with uv and provision Python for the requested version
-  - Inject pytest_otel for automatic test tracing
-  - Install your project dependencies (via `uv run` for pyproject, or requirements.txt)
-  - Run pytest with the specified Python version
+  Builds a container from the base (custom or default), adds your source,
+  optionally installs dependencies, then dispatches to the uv or pip run path
+  (auto-detected unless `runner` is set explicitly).
   """
-  pub test(
-    """
-    Additional arguments to pass to pytest (e.g., ["-x", "--tb=short"])
-    """
-    args: [String!]! = ["-v"],
-
-    """
-    Python version to use (e.g., "3.14", "3.13", "3.12")
-    """
-    version: String! = "3.14",
-  ): Void @check {
-    # A user-supplied container already ships a ready Python environment that we
-    # reuse as-is. Only the default base needs Python provisioned into /opt/venv;
-    # that step also fails fast if the requested version can't be resolved.
-    let prepared = if (container != null) {
-      base
-    } else {
-      base.withExec(["uv", "venv", "/opt/venv", "-p", version])
-    }
-
-    prepared.
-      # Inject pytest_otel before the source is added so this layer stays cached
-      # across source changes. uv targets /opt/venv via VIRTUAL_ENV (no --python needed).
-      withDirectory("/opt/pytest_otel", pytestOtelSource).
-      withExec(["uv", "pip", "install", "/opt/pytest_otel"]).
-
-      withDirectory("/app", source).
-      withWorkdir("/app").
-
-      # requirements.txt projects need their deps installed explicitly;
-      # pyproject.toml projects are synced automatically by `uv run`.
-      withExec([
-        "sh", "-c",
-        "if [ -f requirements.txt ] && [ ! -f pyproject.toml ]; then uv pip install -r requirements.txt; fi"
-      ]).
-
-      withExec(["uv", "run", "-p", version, "pytest"] + args).
-
-      sync
-
+  pub test(): Void @check {
+    let prepared = addSourceDir(base, source)
+    let chosen = resolveRunner(prepared)
+    let result =
+      if (chosen == Runner.UV) {
+        testUv(installDepsUv(prepared))
+      } else {
+        testPip(installDepsPip(prepared))
+      }
+    result.sync
     null
+  }
+
+  """
+  Resolve the effective runner: when `runner` is AUTO, probe the container
+  (prefer uv, else pip); otherwise use the configured value.
+  """
+  let resolveRunner(ctr: Container!): Runner {
+    if (runner == Runner.AUTO) {
+      if (ctr.withExec(["sh", "-c", "command -v uv"], expect: ReturnType.ANY).exitCode == 0) {
+        Runner.UV
+      } else {
+        Runner.PIP
+      }
+    } else {
+      runner
+    }
+  }
+
+  let installDepsUv(ctr: Container!): Container! {
+    if (installDeps == true) {
+      # requirements.txt-only projects need explicit install; pyproject.toml
+      # projects are synced by `uv run` at test time.
+      ctr.withExec([
+        "sh", "-c",
+        "if [ -f requirements.txt ] && [ ! -f pyproject.toml ]; then uv pip install -r requirements.txt; fi",
+      ])
+    } else {
+      ctr
+    }
+  }
+
+  let installDepsPip(ctr: Container!): Container! {
+    if (installDeps == true) {
+      ctr.withExec([
+        "sh", "-c",
+        "if [ -f requirements.txt ]; then pip install -r requirements.txt; elif [ -f pyproject.toml ]; then pip install .; fi",
+      ])
+    } else {
+      ctr
+    }
+  }
+
+  let addSourceDir(
+    ctr: Container!,
+    dir: Directory!,
+  ): Container! {
+    ctr
+      .withDirectory("/app", dir)
+      .withWorkdir("/app")
+  }
+
+  """
+  Run pytest with uv on a container that already has source + deps. Installs
+  pytest_otel (forced uv), then `uv run pytest`. Returns the post-run container.
+  """
+  pub testUv(
+    ctr: Container!,
+  ): Container! {
+    installPytestOtel(ctr, runner: Runner.UV)
+      .withExec(["uv", "run", "pytest"] + args)
+  }
+
+  """
+  Run pytest with pip on a container that already has source + deps. Installs
+  pytest_otel (forced pip), then `python -m pytest`. Returns the post-run container.
+  """
+  pub testPip(
+    ctr: Container!,
+  ): Container! {
+    installPytestOtel(ctr, runner: Runner.PIP)
+      .withExec(["python", "-m", "pytest"] + args)
+  }
+
+  """
+  Install pytest_otel into a container you manage yourself.
+
+  `runner` AUTO detects the tool at runtime (uv -> pip -> python -m pip); UV or
+  PIP forces that tool even when others are present. Returns the container with
+  pytest_otel installed; run pytest yourself on it.
+  """
+  pub installPytestOtel(
+    ctr: Container!,
+    runner: Runner = Runner.AUTO,
+  ): Container! {
+    let installCmd =
+      if (runner == Runner.UV) {
+        "uv pip install /opt/pytest_otel"
+      } else if (runner == Runner.PIP) {
+        "pip install /opt/pytest_otel"
+      } else {
+        "if command -v uv >/dev/null 2>&1; then uv pip install /opt/pytest_otel; "
+          + "elif command -v pip >/dev/null 2>&1; then pip install /opt/pytest_otel; "
+          + "elif command -v python3 >/dev/null 2>&1; then python3 -m pip install /opt/pytest_otel; "
+          + "elif command -v python >/dev/null 2>&1; then python -m pip install /opt/pytest_otel; "
+          + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
+      }
+    ctr
+      .withDirectory("/opt/pytest_otel", pytestOtelSource)
+      .withExec(["sh", "-c", "set -e; " + installCmd])
+  }
+
+  """
+  The bundled pytest_otel library, as a Directory, for fully-manual integration
+  (the package is not yet published to PyPI).
+  """
+  pub pytestOtel: Directory! {
+    pytestOtelSource
   }
 }
