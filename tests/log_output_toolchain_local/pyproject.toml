@@ -4,8 +4,4 @@ version = "1.0.0"
 requires-python = ">=3.10"
 dependencies = [
     "pytest>=7.0.0",
-    "pytest-otel",
 ]
-
-[tool.uv.sources]
-pytest-otel = { path = "../../pytest_otel" }
