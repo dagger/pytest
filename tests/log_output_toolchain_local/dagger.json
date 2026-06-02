@@ -1,6 +1,6 @@
 {
   "name": "pytest-log-output",
-  "engineVersion": "v0.20.6",
+  "engineVersion": "v0.21.3",
   "toolchains": [
     {
       "name": "pytest",
