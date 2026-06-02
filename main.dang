@@ -19,13 +19,22 @@ type Pytest {
   """
   Optional: The source directory containing your Python project
   """
-  pub source: Directory! @defaultPath(path: "/")
+  pub source: Directory!
 
   """
   Optional: A custom container with Python and uv installed.
   If not provided, defaults to Alpine Linux with uv.
   """
   pub container: Container = null
+
+  new(
+    ws: Workspace!,
+    container: Container = null,
+  ) {
+    self.source = ws.directory("/")
+    self.container = container
+    self
+  }
 
   let base: Container! {
     if (container != null) {
