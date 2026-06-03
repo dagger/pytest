@@ -34,7 +34,7 @@ The toolchain serves three levels of control:
    `PIP` or leave `AUTO` to auto-detect.
 3. **Embedded / custom** - call the building blocks directly:
    - `test` - full pipeline (base -> source -> deps -> otel -> pytest), with
-     `installDeps: false` to skip dependency installation when your image already
+     `skipInstallDeps: true` to skip dependency installation when your image already
      has them.
    - `testUv` / `testPip` - run-only: given a container that already has source +
      dependencies, install `pytest_otel` and run pytest. Use these to skip

@@ -56,10 +56,10 @@ type Pytest {
   pub runner: Runner = Runner.AUTO
 
   """
-  Whether `test` installs project dependencies before running. Set false when
+  Skip installing project dependencies before running `test`. Set true when
   the container already has them baked in.
   """
-  pub installDeps: Boolean!
+  pub skipInstallDeps: Boolean!
 
   """
   Construct the toolchain from a workspace.
@@ -82,17 +82,17 @@ new(
     container: Container = null,
     runner: Runner = Runner.AUTO,
     """
-    Whether `test` installs project dependencies before running. Set false when
+    Skip installing project dependencies before running `test`. Set true when
     the container already has them baked in.
     """
-    installDeps: Boolean! = true,
+    skipInstallDeps: Boolean! = false,
   ) {
     self.source = ws.directory(sourcePath)
     self.args = args
     self.pythonVersion = pythonVersion
     self.container = container
     self.runner = runner
-    self.installDeps = installDeps
+    self.skipInstallDeps = skipInstallDeps
     self
   }
 
@@ -158,7 +158,7 @@ new(
   }
 
   let installDepsUv(ctr: Container!): Container! {
-    if (installDeps) {
+    if (!skipInstallDeps) {
       # requirements.txt-only projects need explicit install; pyproject.toml
       # projects are synced by `uv run` at test time.
       let ctr = addSourceDir(ctr, source)
@@ -172,7 +172,7 @@ new(
   }
 
   let installDepsPip(ctr: Container!): Container! {
-    if (installDeps) {
+    if (!skipInstallDeps) {
       let ctr = addSourceDir(ctr, source)
       if (container.exists("requirements.txt") ?? false) {
         ctr = ctr.withExec(["pip", "install", "-r", "requirements.txt"])
@@ -227,12 +227,17 @@ new(
     ctr: Container!,
     runner: Runner = Runner.AUTO,
   ): Container! {
+    # `uv pip install` resolves its target env from VIRTUAL_ENV / an active
+    # `.venv`, ignoring UV_PROJECT_ENVIRONMENT. Point `--python` at the resolved
+    # env so this works on both the default base (sets VIRTUAL_ENV) and custom
+    # containers that only set UV_PROJECT_ENVIRONMENT (e.g. `uv sync` projects).
+    let uvInstall = "uv pip install --python \"${VIRTUAL_ENV:-${UV_PROJECT_ENVIRONMENT:-.venv}}/bin/python\" /opt/pytest_otel"
     let installCmd = if (runner == Runner.UV) {
-      "uv pip install /opt/pytest_otel"
+      uvInstall
     } else if (runner == Runner.PIP) {
       "pip install /opt/pytest_otel"
     } else {
-      "if command -v uv >/dev/null 2>&1; then uv pip install /opt/pytest_otel; " + "elif command -v pip >/dev/null 2>&1; then pip install /opt/pytest_otel; " + "elif command -v python3 >/dev/null 2>&1; then python3 -m pip install /opt/pytest_otel; " + "elif command -v python >/dev/null 2>&1; then python -m pip install /opt/pytest_otel; " + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
+      "if command -v uv >/dev/null 2>&1; then " + uvInstall + "; " + "elif command -v pip >/dev/null 2>&1; then pip install /opt/pytest_otel; " + "elif command -v python3 >/dev/null 2>&1; then python3 -m pip install /opt/pytest_otel; " + "elif command -v python >/dev/null 2>&1; then python -m pip install /opt/pytest_otel; " + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
     }
     ctr
       .withDirectory("/opt/pytest_otel", pytestOtelSource)
