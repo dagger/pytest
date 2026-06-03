@@ -42,7 +42,7 @@ type Pytest {
 
   Only relevant when using the default base.
   """
-  pub pythonVersion: String! = "3.14"
+  pub pythonVersion: String!
 
   """
   Optional: a custom image that replaces the default Alpine+uv base.
@@ -59,7 +59,7 @@ type Pytest {
   Whether `test` installs project dependencies before running. Set false when
   the container already has them baked in.
   """
-  pub installDeps: Boolean! = true
+  pub installDeps: Boolean!
 
   """
   Construct the toolchain from a workspace.
@@ -69,13 +69,22 @@ type Pytest {
   pipeline (pytest args, Python version, custom container, runner, dependency
   installation).
   """
-  new(
+new(
     ws: Workspace!,
     sourcePath: String! = "/",
     args: [String!]! = ["-v"],
+    """
+    Optional: Python version to use (e.g., "3.14", "3.13", "3.12")
+
+    Only relevant when using the default base.
+    """
     pythonVersion: String! = "3.14",
     container: Container = null,
     runner: Runner = Runner.AUTO,
+    """
+    Whether `test` installs project dependencies before running. Set false when
+    the container already has them baked in.
+    """
     installDeps: Boolean! = true,
   ) {
     self.source = ws.directory(sourcePath)
@@ -121,15 +130,13 @@ type Pytest {
   optionally installs dependencies, then dispatches to the uv or pip run path
   (auto-detected unless `runner` is set explicitly).
   """
-  pub test(): Void @check {
-    let prepared = addSourceDir(base, source)
-    let chosen = resolveRunner(prepared)
-    let result =
-      if (chosen == Runner.UV) {
-        testUv(installDepsUv(prepared))
-      } else {
-        testPip(installDepsPip(prepared))
-      }
+  pub test: Void @check {
+    let chosen = resolveRunner(base)
+    let result = if (chosen == Runner.UV) {
+      testUv(installDepsUv(base))
+    } else {
+      testPip(installDepsPip(base))
+    }
     result.sync
     null
   }
@@ -151,24 +158,28 @@ type Pytest {
   }
 
   let installDepsUv(ctr: Container!): Container! {
-    if (installDeps == true) {
+    if (installDeps) {
       # requirements.txt-only projects need explicit install; pyproject.toml
       # projects are synced by `uv run` at test time.
-      ctr.withExec([
-        "sh", "-c",
-        "if [ -f requirements.txt ] && [ ! -f pyproject.toml ]; then uv pip install -r requirements.txt; fi",
-      ])
+      let ctr = addSourceDir(ctr, source)
+      if ((container.exists("requirements.txt") ?? false) and !(container.exists("pyproject.toml") ?? false)) {
+        ctr = ctr.withExec(["uv", "pip", "install", "-r", "requirements.txt"])
+      }
+      ctr
     } else {
       ctr
     }
   }
 
   let installDepsPip(ctr: Container!): Container! {
-    if (installDeps == true) {
-      ctr.withExec([
-        "sh", "-c",
-        "if [ -f requirements.txt ]; then pip install -r requirements.txt; elif [ -f pyproject.toml ]; then pip install .; fi",
-      ])
+    if (installDeps) {
+      let ctr = addSourceDir(ctr, source)
+      if (container.exists("requirements.txt") ?? false) {
+        ctr = ctr.withExec(["pip", "install", "-r", "requirements.txt"])
+      } else if (container.exists("pyproject.toml") ?? false) {
+        ctr = ctr.withExec(["pip", "install", "."])
+      }
+      ctr
     } else {
       ctr
     }
@@ -216,18 +227,13 @@ type Pytest {
     ctr: Container!,
     runner: Runner = Runner.AUTO,
   ): Container! {
-    let installCmd =
-      if (runner == Runner.UV) {
-        "uv pip install /opt/pytest_otel"
-      } else if (runner == Runner.PIP) {
-        "pip install /opt/pytest_otel"
-      } else {
-        "if command -v uv >/dev/null 2>&1; then uv pip install /opt/pytest_otel; "
-          + "elif command -v pip >/dev/null 2>&1; then pip install /opt/pytest_otel; "
-          + "elif command -v python3 >/dev/null 2>&1; then python3 -m pip install /opt/pytest_otel; "
-          + "elif command -v python >/dev/null 2>&1; then python -m pip install /opt/pytest_otel; "
-          + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
-      }
+    let installCmd = if (runner == Runner.UV) {
+      "uv pip install /opt/pytest_otel"
+    } else if (runner == Runner.PIP) {
+      "pip install /opt/pytest_otel"
+    } else {
+      "if command -v uv >/dev/null 2>&1; then uv pip install /opt/pytest_otel; " + "elif command -v pip >/dev/null 2>&1; then pip install /opt/pytest_otel; " + "elif command -v python3 >/dev/null 2>&1; then python3 -m pip install /opt/pytest_otel; " + "elif command -v python >/dev/null 2>&1; then python -m pip install /opt/pytest_otel; " + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
+    }
     ctr
       .withDirectory("/opt/pytest_otel", pytestOtelSource)
       .withExec(["sh", "-c", "set -e; " + installCmd])
