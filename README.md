@@ -50,9 +50,9 @@ The toolchain serves three levels of control:
 Example, using `fastly/fastly-cli`:
 
 ```console
-$ git clone github.com/fastly/fastly-cli
+$ git clone https://github.com/fastly/cli
 
-$ cd fastly-cli
+$ cd cli
 
 $ # Initialize an empty dagger module
 $ dagger init
