@@ -168,7 +168,7 @@ new(
       # requirements.txt-only projects need explicit install; pyproject.toml
       # projects are synced by `uv run` at test time.
       let ctr = addSourceDir(ctr, source)
-      if ((container.exists("requirements.txt") ?? false) and !(container.exists("pyproject.toml") ?? false)) {
+      if (source.exists("requirements.txt") and !source.exists("pyproject.toml")) {
         ctr = ctr.withExec(["uv", "pip", "install", "-r", "requirements.txt"])
       }
       ctr
@@ -180,9 +180,9 @@ new(
   let installDepsPip(ctr: Container!): Container! {
     if (!skipInstallDeps) {
       let ctr = addSourceDir(ctr, source)
-      if (container.exists("requirements.txt") ?? false) {
+      if (source.exists("requirements.txt")) {
         ctr = ctr.withExec(["pip", "install", "-r", "requirements.txt"])
-      } else if (container.exists("pyproject.toml") ?? false) {
+      } else if (source.exists("pyproject.toml")) {
         ctr = ctr.withExec(["pip", "install", "."])
       }
       ctr
