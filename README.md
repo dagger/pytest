@@ -39,13 +39,20 @@ The toolchain serves three levels of control:
    - `testUv` / `testPip` - run-only: given a container that already has source +
      dependencies, install `pytest_otel` and run pytest. Use these to skip
      detection entirely.
-   - `installPytestOtel(ctr, runner)` - install only `pytest_otel` into your
-     container (`AUTO` detects the tool; `UV`/`PIP` force one), then run pytest
-     yourself.
+   - `installPytestOtel(ctr, runner, envTarget)` - install only `pytest_otel`
+     into your container (`AUTO` detects the tool; `UV`/`PIP` force one), then run
+     pytest yourself. Use `envTarget` to control where it lands (see below) - in
+     particular `SYSTEM` for a container without a `.venv`.
    - `pytestOtel` - get the bundled `pytest_otel` library as a `Directory` for
      fully-manual integration (it is not yet published to PyPI).
 
 `runner` is `AUTO` | `UV` | `PIP` (default `AUTO`: prefer `uv`, else `pip`).
+
+`envTarget` is `AUTO` | `VENV` | `SYSTEM` (default `AUTO`): `AUTO` installs into
+an existing virtual environment when present and otherwise falls back to a system
+install; `VENV` forces a virtual environment (created when missing); `SYSTEM`
+forces a system install (`--system --break-system-packages`). Containers without
+a `.venv` work with `AUTO` and `SYSTEM`.
 
 Example, using `fastly/fastly-cli`:
 

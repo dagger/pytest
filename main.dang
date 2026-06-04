@@ -6,6 +6,12 @@ enum Runner {
   PIP
 }
 
+enum EnvTarget {
+  AUTO
+  VENV
+  SYSTEM
+}
+
 type Pytest {
   """
   The uv binary extracted from the bundled Docker image
@@ -195,13 +201,32 @@ new(
   }
 
   """
+  Build the pip command that installs pytest_otel for the given `envTarget`.
+
+  `pip` is the invocation prefix (`pip`, `python3 -m pip`, ...). AUTO tries a
+  plain install and retries with `--break-system-packages` (works in a venv, a
+  plain system, or an externally-managed system); VENV installs as-is and fails
+  loudly when no usable env is active; SYSTEM forces `--break-system-packages`.
+  """
+  let pipInstall(pip: String!, envTarget: EnvTarget): String! {
+    if (envTarget == EnvTarget.SYSTEM) {
+      pip + " install --break-system-packages /opt/pytest_otel"
+    } else if (envTarget == EnvTarget.VENV) {
+      pip + " install /opt/pytest_otel"
+    } else {
+      pip + " install /opt/pytest_otel || " + pip + " install --break-system-packages /opt/pytest_otel"
+    }
+  }
+
+  """
   Run pytest with uv on a container that already has source + deps. Installs
-  pytest_otel (forced uv), then `uv run pytest`. Returns the post-run container.
+  pytest_otel (forced uv, into the project venv since `uv run` is venv-based),
+  then `uv run pytest`. Returns the post-run container.
   """
   pub testUv(
     ctr: Container!,
   ): Container! {
-    installPytestOtel(ctr, runner: Runner.UV)
+    installPytestOtel(ctr, runner: Runner.UV, envTarget: EnvTarget.VENV)
       .withExec(["uv", "run", "pytest"] + args)
   }
 
@@ -220,24 +245,48 @@ new(
   Install pytest_otel into a container you manage yourself.
 
   `runner` AUTO detects the tool at runtime (uv -> pip -> python -m pip); UV or
-  PIP forces that tool even when others are present. Returns the container with
-  pytest_otel installed; run pytest yourself on it.
+  PIP forces that tool even when others are present.
+
+  `envTarget` chooses where pytest_otel lands. AUTO installs into an existing
+  virtual environment when one is present and otherwise falls back to a system
+  install; VENV forces a virtual environment, creating it when missing; SYSTEM
+  forces a system install (`uv ... --system --break-system-packages` /
+  `pip ... --break-system-packages`). Use SYSTEM (or AUTO) for containers
+  without a `.venv`.
+
+  Returns the container with pytest_otel installed; run pytest yourself on it.
   """
   pub installPytestOtel(
     ctr: Container!,
     runner: Runner = Runner.AUTO,
+    envTarget: EnvTarget = EnvTarget.AUTO,
   ): Container! {
-    # `uv pip install` resolves its target env from VIRTUAL_ENV / an active
-    # `.venv`, ignoring UV_PROJECT_ENVIRONMENT. Point `--python` at the resolved
-    # env so this works on both the default base (sets VIRTUAL_ENV) and custom
-    # containers that only set UV_PROJECT_ENVIRONMENT (e.g. `uv sync` projects).
-    let uvInstall = "uv pip install --python \"${VIRTUAL_ENV:-${UV_PROJECT_ENVIRONMENT:-.venv}}/bin/python\" /opt/pytest_otel"
+    # uv resolves its `pip install` target from VIRTUAL_ENV / an active `.venv`
+    # (ignoring UV_PROJECT_ENVIRONMENT), so resolve the env path explicitly into
+    # $T. AUTO installs into that env when it exists, else falls back to a system
+    # install (`--system --break-system-packages` is the only form uv honors for
+    # a non-virtual environment; UV_BREAK_SYSTEM_PACKAGES alone is a no-op).
+    # VENV creates the env when missing; SYSTEM always targets the base Python.
+    let uvResolve = "T=\"${VIRTUAL_ENV:-${UV_PROJECT_ENVIRONMENT:-.venv}}\"; "
+    let uvVenv = "uv pip install --python \"$T/bin/python\" /opt/pytest_otel"
+    let uvSystem = "uv pip install --system --break-system-packages /opt/pytest_otel"
+    let uvInstall = if (envTarget == EnvTarget.SYSTEM) {
+      uvSystem
+    } else if (envTarget == EnvTarget.VENV) {
+      uvResolve + "[ -x \"$T/bin/python\" ] || uv venv \"$T\"; " + uvVenv
+    } else {
+      uvResolve + "if [ -x \"$T/bin/python\" ]; then " + uvVenv + "; else " + uvSystem + "; fi"
+    }
     let installCmd = if (runner == Runner.UV) {
       uvInstall
     } else if (runner == Runner.PIP) {
-      "pip install /opt/pytest_otel"
+      pipInstall("pip", envTarget)
     } else {
-      "if command -v uv >/dev/null 2>&1; then " + uvInstall + "; " + "elif command -v pip >/dev/null 2>&1; then pip install /opt/pytest_otel; " + "elif command -v python3 >/dev/null 2>&1; then python3 -m pip install /opt/pytest_otel; " + "elif command -v python >/dev/null 2>&1; then python -m pip install /opt/pytest_otel; " + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
+      "if command -v uv >/dev/null 2>&1; then " + uvInstall + "; "
+        + "elif command -v pip >/dev/null 2>&1; then " + pipInstall("pip", envTarget) + "; "
+        + "elif command -v python3 >/dev/null 2>&1; then " + pipInstall("python3 -m pip", envTarget) + "; "
+        + "elif command -v python >/dev/null 2>&1; then " + pipInstall("python -m pip", envTarget) + "; "
+        + "else echo 'pytest toolchain: could not find uv, pip, or python to install pytest_otel' >&2; exit 1; fi"
     }
     ctr
       .withDirectory("/opt/pytest_otel", pytestOtelSource)
