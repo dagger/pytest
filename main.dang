@@ -56,8 +56,8 @@ type Pytest {
   pub runner: Runner = Runner.AUTO
 
   """
-  Skip installing project dependencies before running `test`. Set true when
-  the container already has them baked in.
+  Skip installing project dependencies and mounting the source code directory
+  before running `test`. Set true when the container already has both baked in.
   """
   pub skipInstallDeps: Boolean!
 
@@ -82,8 +82,8 @@ new(
     container: Container = null,
     runner: Runner = Runner.AUTO,
     """
-    Skip installing project dependencies before running `test`. Set true when
-    the container already has them baked in.
+    Skip installing project dependencies and mounting the source code directory
+    before running `test`. Set true when the container already has both baked in.
     """
     skipInstallDeps: Boolean! = false,
   ) {
