@@ -18,14 +18,48 @@ On a python project, using pytest as the test runner:
   - export captured stdout, stderr, and Python logging records as OTel logs
   - run `pytest`
 
-By default the toolchain builds an Alpine + `uv` container. You can instead provide your own container (with Python and `uv` installed); the toolchain reuses its existing virtual environment at `/opt/venv` rather than recreating it.
+`pytest:test` runs against a self-contained Alpine + `uv` base, so it needs no setup. To trace pytest inside your own container instead (your Python, your dependencies, your environment), pass that container to the toolchain or use the lower-level functions directly.
+
+## Usage modes
+
+The toolchain serves three levels of control:
+
+1. **Plain toolchain** - install it and run `dagger check`. Your project is taken
+   from the workspace automatically; `pythonVersion` (and `sourcePath`, to target a
+   subdirectory of the workspace) are the only knobs commonly set. Everything else
+   just works against the bundled Alpine + `uv` base.
+2. **Custom image (drop-in)** - set `container` to your own image (your Python, your
+   tooling, `uv` or not). It replaces the default base; the module still installs
+   `pytest_otel` and runs pytest. If your image is not `uv`-based, set `runner` to
+   `PIP` or leave `AUTO` to auto-detect.
+3. **Embedded / custom** - call the building blocks directly:
+   - `test` - full pipeline (base -> source -> deps -> otel -> pytest), with
+     `skipInstallDeps: true` to skip mounting the source and installing
+     dependencies when your image already has both.
+   - `testUv` / `testPip` - run-only: given a container that already has source +
+     dependencies, install `pytest_otel` and run pytest. Use these to skip
+     detection entirely.
+   - `installPytestOtel(ctr, runner, envTarget)` - install only `pytest_otel`
+     into your container (`AUTO` detects the tool; `UV`/`PIP` force one), then run
+     pytest yourself. Use `envTarget` to control where it lands (see below) - in
+     particular `SYSTEM` for a container without a `.venv`.
+   - `pytestOtel` - get the bundled `pytest_otel` library as a `Directory` for
+     fully-manual integration (it is not yet published to PyPI).
+
+`runner` is `AUTO` | `UV` | `PIP` (default `AUTO`: prefer `uv`, else `pip`).
+
+`envTarget` is `AUTO` | `VENV` | `SYSTEM` (default `AUTO`): `AUTO` installs into
+an existing virtual environment when present and otherwise falls back to a system
+install; `VENV` forces a virtual environment (created when missing); `SYSTEM`
+forces a system install (`--system --break-system-packages`). Containers without
+a `.venv` work with `AUTO` and `SYSTEM`.
 
 Example, using `fastly/fastly-cli`:
 
 ```console
-$ git clone github.com/fastly/fastly-cli
+$ git clone https://github.com/fastly/cli
 
-$ cd fastly-cli
+$ cd cli
 
 $ # Initialize an empty dagger module
 $ dagger init

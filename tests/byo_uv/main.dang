@@ -1,0 +1,49 @@
+type ByoUv {
+  """
+  A minimal uv-based container with no virtual environment: the upstream
+  uv+python alpine image with a trivial passing test. No `.venv`, no
+  VIRTUAL_ENV, no UV_PROJECT_ENVIRONMENT - the missing-`.venv` case.
+  """
+  let project: Container! {
+    container
+      .from("ghcr.io/astral-sh/uv:python3.13-alpine")
+      .withNewFile("/app/test_ok.py", "def test_ok():\n    assert True\n")
+      .withWorkdir("/app")
+  }
+
+  """
+  installPytestOtel with SYSTEM installs into the base Python on a uv container
+  that has no `.venv`.
+  """
+  pub otelSystem(): Void @check {
+    pytest
+      .installPytestOtel(project, runner: PytestRunner.UV, envTarget: PytestEnvTarget.SYSTEM)
+      .withExec(["python", "-c", "import pytest_otel"])
+      .sync
+    null
+  }
+
+  """
+  installPytestOtel with AUTO falls back to a system install when no `.venv`
+  is present.
+  """
+  pub otelAuto(): Void @check {
+    pytest
+      .installPytestOtel(project, runner: PytestRunner.UV)
+      .withExec(["python", "-c", "import pytest_otel"])
+      .sync
+    null
+  }
+
+  """
+  installPytestOtel with VENV creates a virtual environment and installs into
+  it when none exists.
+  """
+  pub otelVenv(): Void @check {
+    pytest
+      .installPytestOtel(project, runner: PytestRunner.UV, envTarget: PytestEnvTarget.VENV)
+      .withExec(["sh", "-c", ".venv/bin/python -c 'import pytest_otel'"])
+      .sync
+    null
+  }
+}

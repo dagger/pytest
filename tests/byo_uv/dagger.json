@@ -1,0 +1,13 @@
+{
+  "name": "byo-uv",
+  "engineVersion": "v0.21.3",
+  "sdk": {
+    "source": "dang"
+  },
+  "dependencies": [
+    {
+      "name": "pytest",
+      "source": "../../"
+    }
+  ]
+}

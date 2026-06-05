@@ -1,15 +1,12 @@
 {
-  "name": "pytest-log-output",
+  "name": "pytest-requirements-txt",
   "engineVersion": "v0.21.3",
   "toolchains": [
     {
       "name": "pytest",
       "source": "../../",
       "customizations": [
-        {
-          "argument": "sourcePath",
-          "default": "/tests/log_output_toolchain_local"
-        }
+        { "argument": "sourcePath", "default": "/tests/requirements_txt" }
       ]
     }
   ]
