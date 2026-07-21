@@ -179,6 +179,12 @@ new(
     if (found.contains("..") == false or found.contains("app") == false) {
       raise "Pytest discovery should return the nearest ancestor and cwd descendants: " + found.join(", ")
     }
+
+    let nestedWs = fixture.asWorkspace(cwd: "work/app/nested/deeper")
+    let nestedFound = projects(nestedWs)
+    if (nestedFound.length != 1 or nestedFound.contains("../..") == false) {
+      raise "Pytest discovery should prefer the nearer pyproject.toml over the ancestor pytest.ini: " + nestedFound.join(", ")
+    }
     null
   }
 

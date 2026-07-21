@@ -13,7 +13,7 @@
     {
       "name": "polyfill",
       "source": "github.com/dagger/polyfill@main",
-      "pin": "b30eb839000fe179e5d0544a9b667b21817b8120"
+      "pin": "e90bbfc4843258a877a3a95b8db1571e7981e65f"
     }
   ]
 }
