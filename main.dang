@@ -136,7 +136,7 @@ new(
   optionally installs dependencies, then dispatches to the uv or pip run path
   (auto-detected unless `runner` is set explicitly).
   """
-  pub test: Void @check {
+  pub test: Void {
     let chosen = resolveRunner(base)
     let result = if (chosen == Runner.UV) {
       testUv(installDepsUv(base))
@@ -144,6 +144,63 @@ new(
       testPip(installDepsPip(base))
     }
     result.sync
+    null
+  }
+
+  """
+  Pytest projects visible from the client's cwd: its nearest enclosing project
+  plus projects at or below it. Paths are cwd-relative.
+  """
+  pub projects(ws: Workspace!): [String!]! {
+    polyfill().workspace(ws).findConfigDirs(
+      ["pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"],
+      exclude: ["**/.venv/**", "**/site-packages/**", "**/node_modules/**"],
+    )
+  }
+
+  """
+  Test every Pytest project in the caller's cone. A strict ancestor is returned
+  by discovery for context but is not tested from a descendant cwd.
+  """
+  pub testAll(ws: Workspace!): Void @check {
+    projects(ws)
+      .filter { path => path.hasPrefix("..") == false }
+      .each { path => Pytest(ws, sourcePath: path, args: args, pythonVersion: pythonVersion, container: container, runner: runner, skipInstallDeps: skipInstallDeps).test }
+    null
+  }
+
+  """
+  Discovery is cwd-relative and automatic checks exclude strict ancestors.
+  """
+  pub discoveryCheck: Void @check {
+    let fixture = currentModule.source.directory("tests/discovery/ancestor")
+    let ws = fixture.asWorkspace(cwd: "work")
+    let found = projects(ws)
+    if (found.contains("..") == false or found.contains("app") == false) {
+      raise "Pytest discovery should return the nearest ancestor and cwd descendants: " + found.join(", ")
+    }
+    null
+  }
+
+  """
+  From a configless subdirectory, automatic testing skips a failing ancestor
+  but still fails for a broken descendant project.
+  """
+  pub cwdScopeCheck: Void @check {
+    let fixture = currentModule.source.directory("tests/discovery/ancestor")
+    let failingAncestor = fixture
+      .withNewFile("test_ancestor.py", "def test_ancestor():\n    assert False\n")
+      .asWorkspace(cwd: "work")
+    Pytest(failingAncestor, args: ["-q"]).testAll(failingAncestor)
+
+    let failingDescendant = fixture
+      .withNewFile("work/app/test_app.py", "def test_app():\n    assert False\n")
+      .asWorkspace(cwd: "work")
+    let dirtyPytest = Pytest(failingDescendant, args: ["-q"])
+    let failed = try { dirtyPytest.testAll(failingDescendant); false } catch { err => true }
+    if (failed == false) {
+      raise "Pytest should test a failing descendant project"
+    }
     null
   }
 
