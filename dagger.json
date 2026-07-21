@@ -1,11 +1,19 @@
 {
   "name": "pytest",
-  "engineVersion": "v0.21.3",
+  "engineVersion": "v1.0.0-0",
   "sdk": {
     "source": "dang"
   },
   "include": [
     "pytest_otel",
-    "images"
+    "images",
+    "tests/discovery"
+  ],
+  "dependencies": [
+    {
+      "name": "polyfill",
+      "source": "github.com/dagger/polyfill@main",
+      "pin": "e90bbfc4843258a877a3a95b8db1571e7981e65f"
+    }
   ]
 }
