@@ -152,8 +152,8 @@ new(
   plus projects at or below it. Paths are cwd-relative.
   """
   pub projects(ws: Workspace!): [String!]! {
-    polyfill().workspace(ws).findConfigDirs(
-      ["pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"],
+    ws.findRoots(
+      markers: ["pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg"],
       exclude: ["**/.venv/**", "**/site-packages/**", "**/node_modules/**"],
     )
   }
@@ -170,7 +170,8 @@ new(
   }
 
   """
-  Discovery is cwd-relative and automatic checks exclude strict ancestors.
+  Discovery is cwd-relative, prunes vendored trees, and automatic checks
+  exclude strict ancestors.
   """
   pub discoveryCheck: Void @check {
     let fixture = currentModule.source.directory("tests/discovery/ancestor")
@@ -184,6 +185,15 @@ new(
     let nestedFound = projects(nestedWs)
     if (nestedFound.length != 1 or nestedFound.contains("../..") == false) {
       raise "Pytest discovery should prefer the nearer pyproject.toml over the ancestor pytest.ini: " + nestedFound.join(", ")
+    }
+
+    # .venv is gitignored, so the vendored marker is written at check time.
+    let vendoredWs = fixture
+      .withNewFile("work/app/.venv/pyproject.toml", "[project]\nname = \"vendored\"\n")
+      .asWorkspace(cwd: "work")
+    let vendoredFound = projects(vendoredWs)
+    if (vendoredFound.contains("app/.venv")) {
+      raise "Pytest discovery should prune vendored environments: " + vendoredFound.join(", ")
     }
     null
   }
