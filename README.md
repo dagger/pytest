@@ -1,5 +1,10 @@
 # Pytest Dagger Toolchain
 
+> [!WARNING]
+> This module is deprecated, use [dagger/python](https://github.com/dagger/python)/pytest instead.
+>
+> Install it with `dagger module install dagger.io/python/pytest`
+
 A toolchain for testing Python application with automatic OpenTelemetry tracing
 
 This toolchain automatically injects a `pytest_otel` library for test tracing visibility in Dagger TUI and Dagger Cloud. No configuration required.
